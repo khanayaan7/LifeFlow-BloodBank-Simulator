@@ -195,7 +195,3 @@ On backend startup, APScheduler starts two jobs:
 - Add Docker Compose for one-command local startup
 - Add automated tests and CI checks
 - Add API docs screenshots and demo walkthrough
-
-## License
-
-Add a `LICENSE` file and update this section with your chosen license.
