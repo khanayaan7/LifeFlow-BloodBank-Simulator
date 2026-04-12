@@ -1,7 +1,32 @@
 import axios from "axios";
 
+function resolveApiBaseUrl() {
+  const envUrl = process.env.REACT_APP_API_URL;
+  const isBrowser = typeof window !== "undefined";
+
+  if (!isBrowser) {
+    return envUrl || "http://localhost:8000";
+  }
+
+  const currentHost = window.location.hostname;
+  const currentProtocol = window.location.protocol;
+
+  // If the build still has localhost baked in but app is opened on another host,
+  // automatically target backend on the same host at port 8000.
+  if (envUrl) {
+    const isLocalEnvUrl = envUrl.includes("localhost") || envUrl.includes("127.0.0.1");
+    const isRemoteHost = currentHost !== "localhost" && currentHost !== "127.0.0.1";
+
+    if (!(isLocalEnvUrl && isRemoteHost)) {
+      return envUrl;
+    }
+  }
+
+  return `${currentProtocol}//${currentHost}:8000`;
+}
+
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || "http://localhost:8000"
+  baseURL: resolveApiBaseUrl()
 });
 
 api.interceptors.request.use((config) => {
