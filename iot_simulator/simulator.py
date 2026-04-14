@@ -19,9 +19,12 @@ def schedule_violation():
     global current_violation_unit_idx, active_violation_unit, active_violation_ticks_remaining
 
     # Keep exactly one storage unit in violation during each 2-minute window.
+    # Choose the next violation unit randomly so the first (and subsequent) windows
+    # do not always start at FRIDGE-A1.
     if active_violation_ticks_remaining <= 0:
-        current_violation_unit_idx = (current_violation_unit_idx + 1) % len(STORAGE_UNITS)
-        active_violation_unit = STORAGE_UNITS[current_violation_unit_idx]
+        candidates = [unit for unit in STORAGE_UNITS if unit != active_violation_unit] or STORAGE_UNITS
+        active_violation_unit = random.choice(candidates)
+        current_violation_unit_idx = STORAGE_UNITS.index(active_violation_unit)
         active_violation_ticks_remaining = VIOLATION_TICKS
 
 

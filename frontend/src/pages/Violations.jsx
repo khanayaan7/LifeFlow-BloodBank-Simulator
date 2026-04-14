@@ -26,6 +26,14 @@ export default function Violations() {
     }
   };
 
+  const formatTemperature = (value) => {
+    const numericValue = Number(value);
+    if (Number.isNaN(numericValue)) {
+      return "--";
+    }
+    return `${numericValue.toFixed(2)}°C`;
+  };
+
   return (
     <div className="space-y-6 p-6 dark:bg-gray-950">
       <div>
@@ -59,7 +67,7 @@ export default function Violations() {
                 rows.map((v) => (
                   <tr key={v.id} className="hover:bg-surface-container-low dark:hover:bg-gray-700 transition-colors">
                     <td className="px-6 py-4 font-medium text-on-surface dark:text-gray-200">{v.storage_unit_id}</td>
-                    <td className="px-6 py-4 text-on-surface dark:text-gray-200">{v.threshold_breached}°C</td>
+                    <td className="px-6 py-4 text-on-surface dark:text-gray-200">{formatTemperature(v.temperature_c)}</td>
                     <td className="px-6 py-4 text-on-surface dark:text-gray-200">{v.duration_minutes || "—"} min</td>
                     <td className="px-6 py-4">
                       <span className={`inline-block px-3 py-1 rounded-full text-label-md font-semibold ${getSeverityColor(v.severity)} ${v.severity?.toLowerCase() === "minor" ? "dark:bg-yellow-900/30 dark:text-yellow-400" : v.severity?.toLowerCase() === "moderate" ? "dark:bg-orange-900/30 dark:text-orange-400" : v.severity?.toLowerCase() === "critical" ? "dark:bg-red-900/30 dark:text-red-400" : "dark:bg-gray-700 dark:text-gray-300"}`}>

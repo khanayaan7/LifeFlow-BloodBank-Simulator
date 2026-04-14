@@ -12,6 +12,7 @@ class BloodRequestCreate(BaseModel):
     component: BloodComponent
     units_needed: int
     urgency: RequestUrgency
+    status: RequestStatus = RequestStatus.pending
     notes: str | None = None
 
 

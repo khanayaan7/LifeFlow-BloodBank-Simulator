@@ -52,18 +52,27 @@ def list_units(
 def create_unit(
     payload: BloodUnitCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin", "lab_technician")),
+    current_user: User = Depends(require_role("lab_technician")),
 ):
+    existing = db.query(BloodUnit).filter(BloodUnit.unit_code == payload.unit_code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Unit code already exists")
+
+    if payload.expiry_date < payload.collection_date:
+        raise HTTPException(status_code=400, detail="Expiry date cannot be before collection date")
+
     unit = BloodUnit(
-        unit_code=_next_unit_code(db),
+        unit_code=payload.unit_code,
         blood_group=payload.blood_group,
         component=payload.component,
         volume_ml=payload.volume_ml,
         donor_id=payload.donor_id,
         collection_date=payload.collection_date,
-        expiry_date=_expiry_for_component(payload.component, payload.collection_date),
+        expiry_date=payload.expiry_date,
         storage_unit_id=payload.storage_unit_id,
-        status=BloodUnitStatus.available,
+        status=payload.status,
+        cold_chain_ok=payload.cold_chain_ok,
+        cold_chain_score=1.0 if payload.cold_chain_ok else 0.4,
     )
     db.add(unit)
     db.flush()

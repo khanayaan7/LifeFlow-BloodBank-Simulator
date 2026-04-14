@@ -79,7 +79,7 @@ export default function App() {
       <Route
         path="/requests"
         element={
-          <ProtectedRoute roles={["admin", "hospital_staff", "lab_technician"]}>
+          <ProtectedRoute roles={["admin", "hospital_staff"]}>
             <Shell>
               <BloodRequests />
             </Shell>

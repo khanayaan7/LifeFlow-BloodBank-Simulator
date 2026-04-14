@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import Base, SessionLocal, engine
 from routers import audit, auth, blood_requests, blood_units, dashboard, donors, hospitals, temperature, violations
 from scheduler import start_scheduler, stop_scheduler
-from seed import ensure_min_fulfilled_requests, ensure_min_pending_requests
+from seed import ensure_min_pending_requests
 
 # Import all model modules so SQLAlchemy can discover them before create_all.
 from models import audit_log, blood_request, blood_unit, cold_chain_violation, donor, hospital, temperature_log, user  # noqa: F401
@@ -22,7 +22,6 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         ensure_min_pending_requests(db, min_pending=5)
-        ensure_min_fulfilled_requests(db, min_fulfilled=1)
         db.commit()
     finally:
         db.close()

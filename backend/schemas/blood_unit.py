@@ -1,18 +1,22 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from models import BloodComponent, BloodGroup, BloodUnitStatus
 
 
 class BloodUnitCreate(BaseModel):
+    unit_code: str
     blood_group: BloodGroup
     component: BloodComponent
     volume_ml: int
+    expiry_date: date
+    status: BloodUnitStatus
+    cold_chain_ok: bool
     donor_id: uuid.UUID | None = None
-    collection_date: date
-    storage_unit_id: str
+    collection_date: date = Field(default_factory=date.today)
+    storage_unit_id: str = "MANUAL-ENTRY"
 
 
 class BloodUnitStatusUpdate(BaseModel):

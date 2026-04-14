@@ -6,6 +6,13 @@ import { Eye, EyeOff, Droplet } from "lucide-react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
+const QUICK_LOGIN_ACCOUNTS = [
+  { label: "Admin", email: "admin@bloodbank.com", password: "Admin@1234" },
+  { label: "Hospital Staff", email: "hospital@city.com", password: "Hospital@1234" },
+  { label: "Lab Technician", email: "lab@bloodbank.com", password: "Lab@1234" },
+  { label: "Auditor", email: "auditor@bloodbank.com", password: "Auditor@1234" }
+];
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -13,6 +20,12 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  const applyQuickLogin = (account) => {
+    setEmail(account.email);
+    setPassword(account.password);
+    setShowPassword(false);
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -102,6 +115,23 @@ export default function Login() {
               {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
+
+          <div className="mt-6">
+            <p className="text-center text-label-md font-semibold tracking-wide text-on-surface dark:text-gray-300">QUICK LOGIN</p>
+            <p className="text-center text-xs text-on-surface-variant dark:text-gray-400 mt-1 mb-3">Choose a role to auto-fill credentials</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {QUICK_LOGIN_ACCOUNTS.map((account) => (
+                <button
+                  key={account.label}
+                  type="button"
+                  onClick={() => applyQuickLogin(account)}
+                  className="group rounded-xl border border-primary/15 dark:border-primary/25 bg-gradient-to-br from-white/90 to-primary/5 dark:from-gray-700/90 dark:to-primary/20 px-3 py-2.5 text-label-md font-semibold text-on-surface dark:text-gray-100 shadow-sm hover:shadow-md hover:border-primary/40 hover:-translate-y-0.5 hover:text-primary dark:hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all duration-200"
+                >
+                  <span className="inline-block transition-transform duration-200 group-hover:scale-[1.02]">{account.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Decorative divider */}
           <div className="mt-8 flex items-center gap-4">
