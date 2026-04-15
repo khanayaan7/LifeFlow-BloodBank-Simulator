@@ -9,7 +9,7 @@ from database import get_db
 from models.temperature_log import TemperatureLog
 from models.user import User
 from schemas.temperature_log import TemperatureIngest, TemperatureLogOut
-from services.violation_checker import check_all_storage_units
+from services.violation_checker import check_storage_unit
 
 router = APIRouter(tags=["temperature"])
 
@@ -25,7 +25,8 @@ def ingest_temperature(payload: TemperatureIngest, db: Session = Depends(get_db)
     db.add(log)
     db.flush()
 
-    check_all_storage_units(db)
+    # Keep ingest latency low; scheduler handles outbound alert delivery.
+    check_storage_unit(db, payload.storage_unit_id, send_alerts=False)
     db.commit()
 
     violation_created = payload.temperature_c < 2.0 or payload.temperature_c > 6.0

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from sqlalchemy.orm import Session
 
@@ -12,9 +13,22 @@ SAFE_MIN = 2.0
 SAFE_MAX = 6.0
 VIOLATION_TRIGGER_MINUTES = 2
 ALERT_INTERVAL_MINUTES = 2
+ALERT_CALL_TIMEOUT_SECONDS = 3
 
 # In-process throttle to avoid spamming on every ingest call.
 last_alert_at_by_storage_unit: dict[str, datetime] = {}
+alert_executor = ThreadPoolExecutor(max_workers=2)
+
+
+def _call_alert_with_timeout(fn, *args) -> bool:
+    # Keep ingest responsive even when external alert providers are slow.
+    future = alert_executor.submit(fn, *args)
+    try:
+        return bool(future.result(timeout=ALERT_CALL_TIMEOUT_SECONDS))
+    except TimeoutError:
+        return False
+    except Exception:
+        return False
 
 
 def _duration_to_severity(duration_minutes: int) -> ViolationSeverity:
@@ -33,7 +47,7 @@ def _score_factor(severity: ViolationSeverity) -> float:
     return 0.4
 
 
-def _assess_storage_unit(db: Session, storage_unit_id: str):
+def _assess_storage_unit(db: Session, storage_unit_id: str, send_alerts: bool = True):
     now = datetime.now(timezone.utc)
     recent = (
         db.query(TemperatureLog)
@@ -103,15 +117,19 @@ def _assess_storage_unit(db: Session, storage_unit_id: str):
     should_send_alert = (
         last_sent_at is None or now - last_sent_at >= timedelta(minutes=ALERT_INTERVAL_MINUTES)
     )
-    if should_send_alert:
-        email_ok = send_cold_chain_violation_email(open_violation)
-        sms_ok = send_cold_chain_sms(open_violation)
+    if send_alerts and should_send_alert:
+        email_ok = _call_alert_with_timeout(send_cold_chain_violation_email, open_violation)
+        sms_ok = _call_alert_with_timeout(send_cold_chain_sms, open_violation)
         open_violation.alert_sent = email_ok and sms_ok
         if email_ok and sms_ok:
             last_alert_at_by_storage_unit[storage_unit_id] = now
 
 
-def check_all_storage_units(db: Session):
+def check_all_storage_units(db: Session, send_alerts: bool = True):
     storage_units = db.query(TemperatureLog.storage_unit_id).distinct().all()
     for (storage_unit_id,) in storage_units:
-        _assess_storage_unit(db, storage_unit_id)
+        _assess_storage_unit(db, storage_unit_id, send_alerts=send_alerts)
+
+
+def check_storage_unit(db: Session, storage_unit_id: str, send_alerts: bool = True):
+    _assess_storage_unit(db, storage_unit_id, send_alerts=send_alerts)

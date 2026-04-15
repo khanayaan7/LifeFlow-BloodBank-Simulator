@@ -3,12 +3,15 @@ import time
 from datetime import datetime, timezone
 
 import requests
+from requests.exceptions import ReadTimeout
 
 BACKEND_URL = "http://localhost:8000"
 STORAGE_UNITS = ["FRIDGE-A1", "FRIDGE-A2", "FRIDGE-B1", "FREEZER-C1"]
 INTERVAL_SECONDS = 30
 VIOLATION_EVERY_SECONDS = 120
 VIOLATION_TICKS = max(1, VIOLATION_EVERY_SECONDS // INTERVAL_SECONDS)
+MAX_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 1
 
 current_violation_unit_idx = -1
 active_violation_unit = None
@@ -46,13 +49,25 @@ def post_reading(storage_unit_id: str, temperature_c: float):
         "temperature_c": temperature_c,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    try:
-        response = requests.post(f"{BACKEND_URL}/temperature/ingest", json=payload, timeout=10)
-        response.raise_for_status()
-        status = "OK" if 2.0 <= temperature_c <= 6.0 else "OUT OF RANGE"
-        print(f"[{storage_unit_id}] Temp: {temperature_c}C -> {status}")
-    except Exception as exc:
-        print(f"[{storage_unit_id}] Failed to send reading: {exc}")
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                f"{BACKEND_URL}/temperature/ingest",
+                json=payload,
+                timeout=(3, 15),
+            )
+            response.raise_for_status()
+            status = "OK" if 2.0 <= temperature_c <= 6.0 else "OUT OF RANGE"
+            print(f"[{storage_unit_id}] Temp: {temperature_c}C -> {status}")
+            return
+        except ReadTimeout as exc:
+            if attempt == MAX_RETRIES:
+                print(f"[{storage_unit_id}] Failed to send reading: {exc}")
+                return
+            time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+        except Exception as exc:
+            print(f"[{storage_unit_id}] Failed to send reading: {exc}")
+            return
 
     
 def main():
