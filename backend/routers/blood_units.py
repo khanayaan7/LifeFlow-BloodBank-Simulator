@@ -10,7 +10,7 @@ from database import get_db
 from models import BloodComponent, BloodGroup, BloodUnitStatus
 from models.blood_unit import BloodUnit
 from models.user import User
-from schemas.blood_unit import BloodUnitCreate, BloodUnitOut, BloodUnitStatusUpdate
+from schemas.blood_unit import BloodUnitCreate, BloodUnitOut, BloodUnitStatusUpdate, BloodUnitUpdate
 from utils.audit import log_action
 
 router = APIRouter(tags=["blood_units"])
@@ -52,7 +52,7 @@ def list_units(
 def create_unit(
     payload: BloodUnitCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("lab_technician")),
+    current_user: User = Depends(require_role("admin", "lab_technician")),
 ):
     existing = db.query(BloodUnit).filter(BloodUnit.unit_code == payload.unit_code).first()
     if existing:
@@ -120,6 +120,50 @@ def get_unit(unit_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depend
     unit = db.query(BloodUnit).filter(BloodUnit.id == unit_id).first()
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
+    return unit
+
+
+@router.put("/{unit_id}", response_model=BloodUnitOut)
+def update_unit(
+    unit_id: uuid.UUID,
+    payload: BloodUnitUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "lab_technician")),
+):
+    unit = db.query(BloodUnit).filter(BloodUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return unit
+
+    if "unit_code" in updates and updates["unit_code"] != unit.unit_code:
+        duplicate = db.query(BloodUnit).filter(BloodUnit.unit_code == updates["unit_code"]).first()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="Unit code already exists")
+
+    collection_date = updates.get("collection_date", unit.collection_date)
+    expiry_date = updates.get("expiry_date", unit.expiry_date)
+    if expiry_date < collection_date:
+        raise HTTPException(status_code=400, detail="Expiry date cannot be before collection date")
+
+    for key, value in updates.items():
+        setattr(unit, key, value)
+
+    if "cold_chain_ok" in updates and "cold_chain_score" not in updates:
+        unit.cold_chain_score = 1.0 if unit.cold_chain_ok else 0.4
+
+    log_action(
+        db,
+        action="BLOOD_UNIT_UPDATED",
+        entity_type="blood_unit",
+        entity_id=str(unit.id),
+        user_id=current_user.id,
+        details={"updated_fields": sorted(updates.keys())},
+    )
+    db.commit()
+    db.refresh(unit)
     return unit
 
 

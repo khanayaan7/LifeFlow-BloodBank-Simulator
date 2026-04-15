@@ -5,11 +5,44 @@ import api from "../api/axios";
 import StatCard from "../components/StatCard";
 import TemperatureChart from "../components/TemperatureChart";
 
+const RELATIVE_TIME_UNITS = [
+  ["year", 365 * 24 * 60 * 60],
+  ["month", 30 * 24 * 60 * 60],
+  ["week", 7 * 24 * 60 * 60],
+  ["day", 24 * 60 * 60],
+  ["hour", 60 * 60],
+  ["minute", 60],
+  ["second", 1]
+];
+
+function formatRelativeTime(timestamp, nowMs) {
+  const valueMs = new Date(timestamp).getTime();
+  if (Number.isNaN(valueMs)) {
+    return "Just now";
+  }
+
+  const diffSeconds = Math.floor((nowMs - valueMs) / 1000);
+  if (diffSeconds <= 5) {
+    return "Just now";
+  }
+
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, secondsInUnit] of RELATIVE_TIME_UNITS) {
+    if (diffSeconds >= secondsInUnit) {
+      const amount = Math.floor(diffSeconds / secondsInUnit);
+      return rtf.format(-amount, unit);
+    }
+  }
+
+  return "Just now";
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [trendData, setTrendData] = useState([]);
   const [trendLines, setTrendLines] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const load = async () => {
     const [statsRes, activityRes] = await Promise.all([
@@ -71,8 +104,12 @@ export default function Dashboard() {
   useEffect(() => {
     load();
     loadTrend();
-    const id = setInterval(load, 30000);
-    return () => clearInterval(id);
+    const loadId = setInterval(load, 30000);
+    const tickerId = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => {
+      clearInterval(loadId);
+      clearInterval(tickerId);
+    };
   }, []);
 
   if (!stats) return <div className="flex items-center justify-center h-96 text-on-surface-variant">Loading dashboard...</div>;
@@ -87,7 +124,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-container-high dark:bg-gray-800">
           <Calendar className="h-5 w-5 text-on-surface-variant dark:text-gray-500" />
-          <span className="text-body-md text-on-surface dark:text-gray-200">Oct 24, 2026 - Today</span>
+          <span className="text-body-md text-on-surface dark:text-gray-200">Apr 10, 2026 - Today</span>
         </div>
       </div>
 
@@ -131,7 +168,7 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="text-body-md font-semibold text-on-surface dark:text-white truncate">{a.action}</p>
                     <p className="text-label-md text-on-surface-variant dark:text-gray-400">{a.entity_type} - {a.entity_id}</p>
-                    <p className="text-label-md text-on-surface-variant dark:text-gray-400 mt-1">12m ago</p>
+                    <p className="text-label-md text-on-surface-variant dark:text-gray-400 mt-1">{formatRelativeTime(a.created_at, nowMs)}</p>
                   </div>
                 </div>
               ))

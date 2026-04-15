@@ -36,6 +36,7 @@ const NAV_BY_ROLE = {
     { path: "/", label: "Dashboard" },
     { path: "/blood-units", label: "Inventory" },
     { path: "/donors", label: "Donors" },
+    { path: "/requests", label: "Requests" },
     { path: "/temperature", label: "Temperature Logs" },
     { path: "/violations", label: "Violations" }
   ],

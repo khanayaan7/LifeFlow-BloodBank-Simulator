@@ -9,6 +9,15 @@ const BLOOD_GROUP_OPTIONS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const COMPONENT_OPTIONS = ["whole_blood", "packed_rbc", "plasma", "platelets"];
 const STATUS_OPTIONS = ["available", "reserved", "allocated", "expired", "quarantined"];
 
+function toDateInputValue(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
 function toTitleCaseWithSpaces(value) {
   return value
     .split("_")
@@ -22,6 +31,8 @@ export default function BloodUnits() {
   const [allUnits, setAllUnits] = useState([]);
   const [filters, setFilters] = useState({ blood_group: "", status: "", component: "" });
   const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [editingUnitId, setEditingUnitId] = useState(null);
   const [form, setForm] = useState({
     unit_code: "",
     blood_group: BLOOD_GROUP_OPTIONS[0],
@@ -31,8 +42,18 @@ export default function BloodUnits() {
     status: "available",
     cold_chain_ok: "true"
   });
+  const [editForm, setEditForm] = useState({
+    unit_code: "",
+    blood_group: BLOOD_GROUP_OPTIONS[0],
+    component: COMPONENT_OPTIONS[0],
+    volume_ml: 350,
+    expiry_date: "",
+    status: "available",
+    cold_chain_ok: "true"
+  });
 
-  const canCreateInventory = user?.role === "lab_technician";
+  const canCreateInventory = user?.role === "lab_technician" || user?.role === "admin";
+  const canEditInventory = user?.role === "lab_technician" || user?.role === "admin";
 
   const loadFiltered = async () => {
     const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
@@ -96,6 +117,51 @@ export default function BloodUnits() {
       toast.error(error?.response?.data?.detail || "Failed to add inventory item");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const startEdit = (unit) => {
+    setEditingUnitId(unit.id);
+    setEditForm({
+      unit_code: unit.unit_code,
+      blood_group: unit.blood_group,
+      component: unit.component,
+      volume_ml: unit.volume_ml,
+      expiry_date: toDateInputValue(unit.expiry_date),
+      status: unit.status,
+      cold_chain_ok: unit.cold_chain_ok ? "true" : "false"
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingUnitId(null);
+  };
+
+  const updateInventoryItem = async (e) => {
+    e.preventDefault();
+    if (!editingUnitId) {
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      const payload = {
+        unit_code: editForm.unit_code.trim(),
+        blood_group: editForm.blood_group,
+        component: editForm.component,
+        volume_ml: Number(editForm.volume_ml),
+        expiry_date: editForm.expiry_date,
+        status: editForm.status,
+        cold_chain_ok: editForm.cold_chain_ok === "true"
+      };
+      await api.put(`/blood-units/${editingUnitId}`, payload);
+      toast.success("Inventory item updated");
+      setEditingUnitId(null);
+      await Promise.all([loadFiltered(), loadAllCategories()]);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to update inventory item");
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -196,6 +262,105 @@ export default function BloodUnits() {
         </form>
       )}
 
+      {canEditInventory && editingUnitId && (
+        <form
+          onSubmit={updateInventoryItem}
+          className="rounded-lg bg-surface dark:bg-gray-800 p-5 shadow-ambient dark:shadow-none dark:border dark:border-gray-700"
+        >
+          <h2 className="font-display text-xl font-bold text-on-surface dark:text-white mb-4">Update Inventory Item</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <input
+              required
+              type="text"
+              value={editForm.unit_code}
+              placeholder="Unit Code"
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, unit_code: e.target.value }))}
+            />
+
+            <select
+              value={editForm.blood_group}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, blood_group: e.target.value }))}
+            >
+              {BLOOD_GROUP_OPTIONS.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={editForm.component}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, component: e.target.value }))}
+            >
+              {COMPONENT_OPTIONS.map((component) => (
+                <option key={component} value={component}>
+                  {toTitleCaseWithSpaces(component)}
+                </option>
+              ))}
+            </select>
+
+            <input
+              required
+              type="number"
+              min="1"
+              value={editForm.volume_ml}
+              placeholder="Volume (ml)"
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, volume_ml: e.target.value }))}
+            />
+
+            <input
+              required
+              type="date"
+              value={editForm.expiry_date}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, expiry_date: e.target.value }))}
+            />
+
+            <select
+              value={editForm.status}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+            >
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {toTitleCaseWithSpaces(status)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={editForm.cold_chain_ok}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 dark:text-gray-200 px-4 py-3 text-body-md"
+              onChange={(e) => setEditForm((prev) => ({ ...prev, cold_chain_ok: e.target.value }))}
+            >
+              <option value="true">Cold Chain: OK</option>
+              <option value="false">Cold Chain: Alert</option>
+            </select>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={updating}
+              className="rounded-lg bg-gradient-to-r from-primary to-primary-container text-on-primary px-5 py-2.5 font-semibold disabled:opacity-70"
+            >
+              {updating ? "Updating..." : "Update Item"}
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-lg bg-surface-container-high dark:bg-gray-700 text-on-surface dark:text-gray-200 px-5 py-2.5 font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <select
           value={filters.blood_group}
@@ -237,7 +402,7 @@ export default function BloodUnits() {
         </select>
       </div>
       
-      <BloodUnitTable units={units} />
+      <BloodUnitTable units={units} canEdit={canEditInventory} onEdit={startEdit} />
     </div>
   );
 }

@@ -33,7 +33,7 @@ def list_requests(
 @router.get("/pending", response_model=list[BloodRequestOut])
 def pending_requests(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "hospital_staff")),
+    _: User = Depends(require_role("admin", "hospital_staff", "lab_technician")),
 ):
     return db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.pending).all()
 
@@ -42,7 +42,7 @@ def pending_requests(
 def create_request(
     payload: BloodRequestCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("hospital_staff")),
+    current_user: User = Depends(require_role("admin", "hospital_staff")),
 ):
     if payload.status != RequestStatus.pending:
         raise HTTPException(status_code=400, detail="New requests must start with pending status")
@@ -79,7 +79,7 @@ def get_request(request_id: uuid.UUID, db: Session = Depends(get_db), _: User = 
 def fulfill_request(
     request_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin", "lab_technician")),
 ):
     req = db.query(BloodRequest).filter(BloodRequest.id == request_id).first()
     if not req:

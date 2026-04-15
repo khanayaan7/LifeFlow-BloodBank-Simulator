@@ -76,39 +76,117 @@ def create_donors(db, admin_id):
 
 
 def create_blood_units(db, donors):
-    if db.query(BloodUnit).count() >= 30:
-        return
+    if not donors:
+        return 0
 
-    components = list(BloodComponent)
+    all_units = db.query(BloodUnit).all()
+    existing_codes = {unit.unit_code for unit in all_units}
+
+    target_by_group = {blood_group: random.randint(20, 25) for blood_group in BloodGroup}
+    group_counts = {blood_group: 0 for blood_group in BloodGroup}
+    component_counts = {component: 0 for component in BloodComponent}
+    status_counts = {status: 0 for status in BloodUnitStatus}
+
+    for unit in all_units:
+        group_counts[unit.blood_group] += 1
+        component_counts[unit.component] += 1
+        status_counts[unit.status] += 1
+
     storage_units = ["FRIDGE-A1", "FRIDGE-A2", "FRIDGE-B1", "FREEZER-C1"]
+    serial = len(existing_codes) + 1
+    created = 0
 
-    for i in range(1, 31):
-        comp = random.choice(components)
-        collection_date = date.today() - timedelta(days=random.randint(0, 25))
-        if comp in (BloodComponent.whole_blood, BloodComponent.packed_rbc):
-            expiry_date = collection_date + timedelta(days=35)
-        elif comp == BloodComponent.plasma:
-            expiry_date = collection_date + timedelta(days=365)
-        else:
-            expiry_date = collection_date + timedelta(days=5)
+    group_tokens = {
+        BloodGroup.A_POS: "G1",
+        BloodGroup.A_NEG: "G2",
+        BloodGroup.B_POS: "G3",
+        BloodGroup.B_NEG: "G4",
+        BloodGroup.AB_POS: "G5",
+        BloodGroup.AB_NEG: "G6",
+        BloodGroup.O_POS: "G7",
+        BloodGroup.O_NEG: "G8",
+    }
 
-        if i <= 6:
-            expiry_date = date.today() + timedelta(days=random.randint(1, 7))
+    def next_unit_code(blood_group: BloodGroup) -> str:
+        nonlocal serial
+        group_token = group_tokens[blood_group]
+        while True:
+            code = f"DMY-{date.today().strftime('%Y%m%d')}-{group_token}-{serial:04d}"
+            serial += 1
+            if code not in existing_codes:
+                existing_codes.add(code)
+                return code
 
-        unit = BloodUnit(
-            unit_code=f"BU-{date.today().strftime('%Y%m%d')}-{i:03d}",
-            blood_group=random.choice(list(BloodGroup)),
-            component=comp,
-            volume_ml=random.randint(350, 450),
-            donor_id=random.choice(donors).id,
-            collection_date=collection_date,
-            expiry_date=expiry_date,
-            status=random.choice([BloodUnitStatus.available, BloodUnitStatus.available, BloodUnitStatus.reserved]),
-            storage_unit_id=random.choice(storage_units),
-            cold_chain_ok=True,
-            cold_chain_score=1.0,
-        )
-        db.add(unit)
+    def expiry_for_component(component: BloodComponent, collection_date: date) -> date:
+        if component in (BloodComponent.whole_blood, BloodComponent.packed_rbc):
+            return collection_date + timedelta(days=35)
+        if component == BloodComponent.plasma:
+            return collection_date + timedelta(days=365)
+        return collection_date + timedelta(days=5)
+
+    for blood_group in BloodGroup:
+        while group_counts[blood_group] < target_by_group[blood_group]:
+            missing_components = [component for component, count in component_counts.items() if count == 0]
+            component = missing_components[0] if missing_components else random.choice(list(BloodComponent))
+
+            missing_statuses = [status for status, count in status_counts.items() if count == 0]
+            if missing_statuses:
+                status = missing_statuses[0]
+            else:
+                status = random.choices(
+                    [
+                        BloodUnitStatus.available,
+                        BloodUnitStatus.reserved,
+                        BloodUnitStatus.allocated,
+                        BloodUnitStatus.expired,
+                        BloodUnitStatus.quarantined,
+                    ],
+                    weights=[45, 20, 15, 10, 10],
+                    k=1,
+                )[0]
+
+            if status == BloodUnitStatus.expired:
+                expiry_date = date.today() - timedelta(days=random.randint(1, 30))
+                collection_date = expiry_date - timedelta(days=random.randint(5, 35))
+            else:
+                collection_date = date.today() - timedelta(days=random.randint(0, 25))
+                expiry_date = expiry_for_component(component, collection_date)
+                if expiry_date <= date.today():
+                    if component in (BloodComponent.whole_blood, BloodComponent.packed_rbc):
+                        expiry_date = date.today() + timedelta(days=random.randint(2, 30))
+                    elif component == BloodComponent.plasma:
+                        expiry_date = date.today() + timedelta(days=random.randint(90, 365))
+                    else:
+                        expiry_date = date.today() + timedelta(days=random.randint(2, 5))
+
+            if status == BloodUnitStatus.quarantined:
+                cold_chain_ok = False
+                cold_chain_score = round(random.uniform(0.1, 0.45), 2)
+            else:
+                cold_chain_ok = random.random() > 0.08
+                cold_chain_score = round(random.uniform(0.8, 1.0), 2) if cold_chain_ok else round(random.uniform(0.4, 0.7), 2)
+
+            unit = BloodUnit(
+                unit_code=next_unit_code(blood_group),
+                blood_group=blood_group,
+                component=component,
+                volume_ml=random.randint(350, 450),
+                donor_id=random.choice(donors).id,
+                collection_date=collection_date,
+                expiry_date=expiry_date,
+                status=status,
+                storage_unit_id=random.choice(storage_units),
+                cold_chain_ok=cold_chain_ok,
+                cold_chain_score=cold_chain_score,
+            )
+            db.add(unit)
+
+            group_counts[blood_group] += 1
+            component_counts[component] += 1
+            status_counts[status] += 1
+            created += 1
+
+    return created
 
 
 def create_requests(db, hospitals, requester_id):
@@ -229,10 +307,10 @@ def main():
         users = create_users(db)
         hospitals = create_hospitals(db)
         donors = create_donors(db, users[0].id)
-        create_blood_units(db, donors)
+        created_units = create_blood_units(db, donors)
         create_requests(db, hospitals, users[1].id)
         db.commit()
-        print("Seed completed successfully")
+        print(f"Seed completed successfully (new blood units added: {created_units})")
     finally:
         db.close()
 

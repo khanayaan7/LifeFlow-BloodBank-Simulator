@@ -20,7 +20,7 @@ def list_donors(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin", "lab_technician")),
 ):
-    return db.query(Donor).order_by(Donor.created_at.desc()).all()
+    return db.query(Donor).filter(Donor.is_eligible.is_(True)).order_by(Donor.created_at.desc()).all()
 
 
 @router.post("/", response_model=DonorOut)
@@ -77,7 +77,7 @@ def update_donor(
 def delete_donor(
     donor_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin", "lab_technician")),
 ):
     donor = db.query(Donor).filter(Donor.id == donor_id).first()
     if not donor:

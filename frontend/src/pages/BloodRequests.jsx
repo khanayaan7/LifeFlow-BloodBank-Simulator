@@ -8,7 +8,6 @@ import { useAuth } from "../context/AuthContext";
 const BLOOD_GROUP_OPTIONS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const COMPONENT_OPTIONS = ["whole_blood", "packed_rbc", "plasma", "platelets"];
 const URGENCY_OPTIONS = ["routine", "urgent", "emergency"];
-const STATUS_OPTIONS = ["pending"];
 
 function formatComponent(component) {
   return component
@@ -31,12 +30,11 @@ export default function BloodRequests() {
     component: COMPONENT_OPTIONS[0],
     units_needed: 1,
     urgency: URGENCY_OPTIONS[0],
-    status: STATUS_OPTIONS[0],
     notes: ""
   });
 
-  const canCreateRequest = user?.role === "hospital_staff";
-  const canFulfill = user?.role === "admin";
+  const canCreateRequest = user?.role === "hospital_staff" || user?.role === "admin";
+  const canFulfill = user?.role === "admin" || user?.role === "lab_technician";
 
   const load = async () => {
     const endpoint = tab === "pending" ? "/requests/pending" : "/requests?status=fulfilled";
@@ -74,7 +72,7 @@ export default function BloodRequests() {
       };
       await api.post("/requests", payload);
       toast.success("Blood request submitted");
-      setRequestForm((prev) => ({ ...prev, units_needed: 1, notes: "", status: "pending" }));
+      setRequestForm((prev) => ({ ...prev, units_needed: 1, notes: "" }));
       load();
     } catch (error) {
       toast.error(error?.response?.data?.detail || "Failed to create request");
@@ -181,18 +179,6 @@ export default function BloodRequests() {
               {URGENCY_OPTIONS.map((urgency) => (
                 <option key={urgency} value={urgency}>
                   {urgency}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={requestForm.status}
-              className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md capitalize"
-              onChange={(e) => setRequestForm((prev) => ({ ...prev, status: e.target.value }))}
-            >
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {status}
                 </option>
               ))}
             </select>

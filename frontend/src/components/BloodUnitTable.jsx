@@ -2,16 +2,20 @@ const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
     case "available":
       return "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400";
+    case "reserved":
+      return "bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400";
     case "allocated":
       return "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400";
     case "expired":
       return "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400";
+    case "quarantined":
+      return "bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400";
     default:
       return "bg-surface-container-low dark:bg-gray-700 text-on-surface dark:text-gray-300";
   }
 };
 
-export default function BloodUnitTable({ units }) {
+export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
   return (
     <div className="rounded-lg bg-surface dark:bg-gray-800 shadow-ambient dark:shadow-none dark:border dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
@@ -25,12 +29,13 @@ export default function BloodUnitTable({ units }) {
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Expiry</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Status</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Cold Chain</th>
+              {canEdit && <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-container-low dark:divide-gray-700">
             {units.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-8 text-center">
+                <td colSpan={canEdit ? 8 : 7} className="px-6 py-8 text-center">
                   <p className="text-body-md text-on-surface-variant dark:text-gray-400">No blood units found</p>
                 </td>
               </tr>
@@ -52,6 +57,16 @@ export default function BloodUnitTable({ units }) {
                       {u.cold_chain_ok ? "✓ OK" : "✗ Alert"}
                     </span>
                   </td>
+                  {canEdit && (
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => onEdit?.(u)}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-label-md font-semibold text-on-primary hover:bg-primary-container"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
