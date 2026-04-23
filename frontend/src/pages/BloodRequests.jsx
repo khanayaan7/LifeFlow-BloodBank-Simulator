@@ -22,18 +22,20 @@ export default function BloodRequests() {
   const [tab, setTab] = useState("pending");
   const [requests, setRequests] = useState([]);
   const [allocationData, setAllocationData] = useState(null);
-  const [hospitals, setHospitals] = useState([]);
+  const [bloodBanks, setBloodBanks] = useState([]);
   const [creating, setCreating] = useState(false);
   const [requestForm, setRequestForm] = useState({
-    hospital_id: "",
+    blood_bank_id: "",
     blood_group: BLOOD_GROUP_OPTIONS[0],
     component: COMPONENT_OPTIONS[0],
     units_needed: 1,
+    patient_name: "",
+    patient_id: "",
     urgency: URGENCY_OPTIONS[0],
     notes: ""
   });
 
-  const canCreateRequest = user?.role === "hospital_staff" || user?.role === "admin";
+  const canCreateRequest = user?.role === "hospital_staff";
   const canFulfill = user?.role === "admin" || user?.role === "lab_technician";
 
   const load = async () => {
@@ -42,23 +44,21 @@ export default function BloodRequests() {
     setRequests(data);
   };
 
-  const loadHospitals = async () => {
-    if (!canCreateRequest) {
-      return;
-    }
-    const { data } = await api.get("/hospitals");
-    setHospitals(data);
-    if (data.length) {
-      setRequestForm((prev) => ({ ...prev, hospital_id: prev.hospital_id || data[0].id }));
-    }
-  };
-
   useEffect(() => {
     load();
   }, [tab]);
 
   useEffect(() => {
-    loadHospitals();
+    if (!canCreateRequest) {
+      return;
+    }
+    api.get("/blood-banks").then((res) => {
+      const rows = res.data || [];
+      setBloodBanks(rows);
+      if (rows.length) {
+        setRequestForm((prev) => ({ ...prev, blood_bank_id: prev.blood_bank_id || rows[0].id }));
+      }
+    });
   }, [canCreateRequest]);
 
   const createRequest = async (e) => {
@@ -72,7 +72,7 @@ export default function BloodRequests() {
       };
       await api.post("/requests", payload);
       toast.success("Blood request submitted");
-      setRequestForm((prev) => ({ ...prev, units_needed: 1, notes: "" }));
+      setRequestForm((prev) => ({ ...prev, units_needed: 1, patient_name: "", patient_id: "", notes: "" }));
       load();
     } catch (error) {
       toast.error(error?.response?.data?.detail || "Failed to create request");
@@ -124,15 +124,19 @@ export default function BloodRequests() {
         >
           <h2 className="font-display text-xl font-bold text-on-surface dark:text-white mb-4">Create New Request</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md text-on-surface dark:text-gray-200 md:col-span-3">
+              <span className="font-semibold">Requesting Hospital:</span> Automatically mapped from your hospital staff account.
+            </div>
+
             <select
               required
-              value={requestForm.hospital_id}
-              className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md"
-              onChange={(e) => setRequestForm((prev) => ({ ...prev, hospital_id: e.target.value }))}
+              value={requestForm.blood_bank_id}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md md:col-span-3"
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, blood_bank_id: e.target.value }))}
             >
-              {hospitals.map((hospital) => (
-                <option key={hospital.id} value={hospital.id}>
-                  {hospital.name}
+              {bloodBanks.map((bank) => (
+                <option key={bank.id} value={bank.id}>
+                  {bank.name} ({bank.location})
                 </option>
               ))}
             </select>
@@ -171,6 +175,24 @@ export default function BloodRequests() {
               placeholder="Units Needed"
             />
 
+            <input
+              required
+              type="text"
+              value={requestForm.patient_name}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md"
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, patient_name: e.target.value }))}
+              placeholder="Patient Name"
+            />
+
+            <input
+              required
+              type="text"
+              value={requestForm.patient_id}
+              className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md"
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, patient_id: e.target.value }))}
+              placeholder="Patient ID"
+            />
+
             <select
               value={requestForm.urgency}
               className="rounded-md bg-surface-container-highest dark:bg-gray-700 px-4 py-3 text-body-md capitalize"
@@ -194,7 +216,7 @@ export default function BloodRequests() {
 
           <button
             type="submit"
-            disabled={creating || !requestForm.hospital_id}
+            disabled={creating || !requestForm.blood_bank_id}
             className="mt-4 rounded-lg bg-gradient-to-r from-primary to-primary-container text-on-primary px-5 py-2.5 font-semibold disabled:opacity-70"
           >
             {creating ? "Submitting..." : "Add Blood Request"}
@@ -244,6 +266,10 @@ export default function BloodRequests() {
               <div className="space-y-2 mb-4">
                 <p className="text-body-md"><span className="font-semibold">Units Needed:</span> {r.units_needed}</p>
                 <p className="text-body-md"><span className="font-semibold">Status:</span> {r.status}</p>
+                <p className="text-body-md"><span className="font-semibold">Patient:</span> {r.patient_name}</p>
+                <p className="text-body-md"><span className="font-semibold">Patient ID:</span> {r.patient_id}</p>
+                <p className="text-body-md"><span className="font-semibold">Requesting Hospital:</span> {r.requesting_hospital_name || "-"}</p>
+                <p className="text-body-md"><span className="font-semibold">Target Blood Bank:</span> {r.target_blood_bank_name || "-"}</p>
               </div>
 
               {tab === "pending" && canFulfill && (

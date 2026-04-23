@@ -1,316 +1,613 @@
-import random
 from datetime import date, datetime, timedelta, timezone
 
 from database import Base, SessionLocal, engine
 from models import BloodComponent, BloodGroup, BloodUnitStatus, RequestStatus, RequestUrgency, UserRole
-from models.audit_log import AuditLog  # noqa: F401
-from models.blood_request import BloodRequest
+from models.audit_log import AuditLog
+from models.blood_bank import BloodBank
+from models.blood_request import BloodRequest, BloodRequestAllocation
 from models.blood_unit import BloodUnit
+from models.cold_chain_violation import ColdChainViolation
 from models.donor import Donor
 from models.hospital import Hospital
+from models.temperature_log import TemperatureLog
 from models.user import User
+from runtime_schema import apply_runtime_schema_updates
+from utils.donors import generate_donor_code, sync_donor_eligibility
 from utils.security import hash_password
 
+BLOOD_BANKS = [
+    {
+        "name": "LifeFlow Blood Bank - Bank More",
+        "location": "Bank More, Dhanbad, Jharkhand",
+        "code": "BANK_MORE",
+    },
+    {
+        "name": "LifeFlow Blood Bank - City Center",
+        "location": "City Center, Dhanbad, Jharkhand",
+        "code": "CITY_CENTER",
+    },
+]
 
-def create_users(db):
-    users = [
-        ("admin@bloodbank.com", "Admin@1234", "System Admin", UserRole.admin),
-        ("hospital@city.com", "Hospital@1234", "City Hospital Staff", UserRole.hospital_staff),
-        ("lab@bloodbank.com", "Lab@1234", "Lab Technician", UserRole.lab_technician),
-        ("auditor@bloodbank.com", "Auditor@1234", "Compliance Auditor", UserRole.auditor),
-    ]
-    created = []
-    for email, password, name, role in users:
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            user = User(email=email, hashed_password=hash_password(password), full_name=name, role=role)
-            db.add(user)
-            db.flush()
-        created.append(user)
-    return created
+STAFF_USERS = [
+    {
+        "full_name": "Bank More Admin",
+        "email": "admin.bankmore@lifeflow.com",
+        "password": "BankMoreAdmin@1234",
+        "role": UserRole.admin,
+        "blood_bank_code": "BANK_MORE",
+    },
+    {
+        "full_name": "Bank More Lab Technician",
+        "email": "lab.bankmore@lifeflow.com",
+        "password": "BankMoreLab@1234",
+        "role": UserRole.lab_technician,
+        "blood_bank_code": "BANK_MORE",
+    },
+    {
+        "full_name": "Bank More Auditor",
+        "email": "auditor.bankmore@lifeflow.com",
+        "password": "BankMoreAudit@1234",
+        "role": UserRole.auditor,
+        "blood_bank_code": "BANK_MORE",
+    },
+    {
+        "full_name": "City Center Admin",
+        "email": "admin.citycenter@lifeflow.com",
+        "password": "CityCenterAdmin@1234",
+        "role": UserRole.admin,
+        "blood_bank_code": "CITY_CENTER",
+    },
+    {
+        "full_name": "City Center Lab Technician",
+        "email": "lab.citycenter@lifeflow.com",
+        "password": "CityCenterLab@1234",
+        "role": UserRole.lab_technician,
+        "blood_bank_code": "CITY_CENTER",
+    },
+    {
+        "full_name": "City Center Auditor",
+        "email": "auditor.citycenter@lifeflow.com",
+        "password": "CityCenterAudit@1234",
+        "role": UserRole.auditor,
+        "blood_bank_code": "CITY_CENTER",
+    },
+]
+
+HOSPITAL_STAFF = [
+    {
+        "name": "Asarfi Hospital Dhanbad",
+        "address": "Baramuri, Dhanbad, Jharkhand",
+        "contact_person": "Dr. Aman Verma",
+        "phone_number": "+919800000101",
+        "email": "staff.asarfi@dhanbad.com",
+        "staff_name": "Asarfi Hospital Staff",
+        "staff_password": "Asarfi@1234",
+    },
+    {
+        "name": "PMCH Dhanbad",
+        "address": "Saraidhela, Dhanbad, Jharkhand",
+        "contact_person": "Dr. Neha Sinha",
+        "phone_number": "+919800000102",
+        "email": "staff.pmch@dhanbad.com",
+        "staff_name": "PMCH Staff",
+        "staff_password": "PMCH@1234",
+    },
+    {
+        "name": "Jalan Hospital Dhanbad",
+        "address": "Bank More, Dhanbad, Jharkhand",
+        "contact_person": "Dr. Ritu Ghosh",
+        "phone_number": "+919800000103",
+        "email": "staff.jalan@dhanbad.com",
+        "staff_name": "Jalan Hospital Staff",
+        "staff_password": "Jalan@1234",
+    },
+]
+
+DONOR_ACCOUNTS = [
+    {
+        "full_name": "Riya Sen",
+        "email": "donor.riya@lifeflow.com",
+        "phone_number": "+919700000201",
+        "password": "RiyaDonor@1234",
+        "blood_group": BloodGroup.O_POS,
+        "age": 28,
+        "blood_bank_code": "CITY_CENTER",
+    },
+    {
+        "full_name": "Arjun Kumar",
+        "email": "donor.arjun@lifeflow.com",
+        "phone_number": "+919700000202",
+        "password": "ArjunDonor@1234",
+        "blood_group": BloodGroup.A_POS,
+        "age": 31,
+        "blood_bank_code": "BANK_MORE",
+    },
+    {
+        "full_name": "Meera Das",
+        "email": "donor.meera@lifeflow.com",
+        "phone_number": "+919700000203",
+        "password": "MeeraDonor@1234",
+        "blood_group": BloodGroup.B_POS,
+        "age": 34,
+        "blood_bank_code": "BANK_MORE",
+    },
+    {
+        "full_name": "Kabir Roy",
+        "email": "donor.kabir@lifeflow.com",
+        "phone_number": "+919700000204",
+        "password": "KabirDonor@1234",
+        "blood_group": BloodGroup.AB_POS,
+        "age": 29,
+        "blood_bank_code": "CITY_CENTER",
+    },
+    {
+        "full_name": "Naina Paul",
+        "email": "donor.naina@lifeflow.com",
+        "phone_number": "+919700000205",
+        "password": "NainaDonor@1234",
+        "blood_group": BloodGroup.O_NEG,
+        "age": 26,
+        "blood_bank_code": "CITY_CENTER",
+    },
+    {
+        "full_name": "Vikram Sharma",
+        "email": "donor.vikram@lifeflow.com",
+        "phone_number": "+919700000206",
+        "password": "VikramDonor@1234",
+        "blood_group": BloodGroup.B_NEG,
+        "age": 38,
+        "blood_bank_code": "BANK_MORE",
+    },
+]
+
+DONATION_BLUEPRINTS = [
+    {
+        "unit_code": "CC-20260401-001",
+        "donor_email": "donor.riya@lifeflow.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.O_POS,
+        "component": BloodComponent.whole_blood,
+        "volume_ml": 450,
+        "collection_date": date(2026, 4, 1),
+        "expiry_date": date(2026, 5, 6),
+        "status": BloodUnitStatus.allocated,
+        "storage_unit_id": "CC-FRIDGE-1",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "CC-20260401-002",
+        "donor_email": "donor.riya@lifeflow.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.O_POS,
+        "component": BloodComponent.packed_rbc,
+        "volume_ml": 350,
+        "collection_date": date(2026, 4, 1),
+        "expiry_date": date(2026, 5, 6),
+        "status": BloodUnitStatus.available,
+        "storage_unit_id": "CC-FRIDGE-1",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260318-001",
+        "donor_email": "donor.arjun@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.A_POS,
+        "component": BloodComponent.whole_blood,
+        "volume_ml": 450,
+        "collection_date": date(2026, 3, 18),
+        "expiry_date": date(2026, 4, 22),
+        "status": BloodUnitStatus.allocated,
+        "storage_unit_id": "BM-FRIDGE-2",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260318-002",
+        "donor_email": "donor.arjun@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.A_POS,
+        "component": BloodComponent.plasma,
+        "volume_ml": 300,
+        "collection_date": date(2026, 3, 18),
+        "expiry_date": date(2027, 3, 18),
+        "status": BloodUnitStatus.available,
+        "storage_unit_id": "BM-FRIDGE-2",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260110-003",
+        "donor_email": "donor.meera@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_POS,
+        "component": BloodComponent.whole_blood,
+        "volume_ml": 420,
+        "collection_date": date(2026, 1, 10),
+        "expiry_date": date(2026, 2, 14),
+        "status": BloodUnitStatus.expired,
+        "storage_unit_id": "BM-FRIDGE-1",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260402-001",
+        "donor_email": "donor.meera@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_POS,
+        "component": BloodComponent.packed_rbc,
+        "volume_ml": 360,
+        "collection_date": date(2026, 4, 2),
+        "expiry_date": date(2026, 5, 7),
+        "status": BloodUnitStatus.available,
+        "storage_unit_id": "BM-FRIDGE-1",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "CC-20260310-003",
+        "donor_email": "donor.kabir@lifeflow.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.AB_POS,
+        "component": BloodComponent.plasma,
+        "volume_ml": 280,
+        "collection_date": date(2026, 3, 10),
+        "expiry_date": date(2027, 3, 10),
+        "status": BloodUnitStatus.allocated,
+        "storage_unit_id": "CC-FRIDGE-3",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "CC-20260310-004",
+        "donor_email": "donor.kabir@lifeflow.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.AB_POS,
+        "component": BloodComponent.platelets,
+        "volume_ml": 250,
+        "collection_date": date(2026, 3, 10),
+        "expiry_date": date(2026, 3, 15),
+        "status": BloodUnitStatus.expired,
+        "storage_unit_id": "CC-FRIDGE-3",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "CC-20260405-001",
+        "donor_email": "donor.naina@lifeflow.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.O_NEG,
+        "component": BloodComponent.whole_blood,
+        "volume_ml": 450,
+        "collection_date": date(2026, 4, 5),
+        "expiry_date": date(2026, 5, 10),
+        "status": BloodUnitStatus.available,
+        "storage_unit_id": "CC-FRIDGE-2",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260305-001",
+        "donor_email": "donor.vikram@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_NEG,
+        "component": BloodComponent.whole_blood,
+        "volume_ml": 430,
+        "collection_date": date(2026, 3, 5),
+        "expiry_date": date(2026, 4, 9),
+        "status": BloodUnitStatus.allocated,
+        "storage_unit_id": "BM-FRIDGE-3",
+        "cold_chain_ok": True,
+    },
+    {
+        "unit_code": "BM-20260305-002",
+        "donor_email": "donor.vikram@lifeflow.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_NEG,
+        "component": BloodComponent.plasma,
+        "volume_ml": 310,
+        "collection_date": date(2026, 3, 5),
+        "expiry_date": date(2027, 3, 5),
+        "status": BloodUnitStatus.quarantined,
+        "storage_unit_id": "BM-FRIDGE-4",
+        "cold_chain_ok": False,
+    },
+]
+
+REQUEST_BLUEPRINTS = [
+    {
+        "hospital_email": "staff.asarfi@dhanbad.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.O_POS,
+        "component": BloodComponent.whole_blood,
+        "units_needed": 1,
+        "patient_name": "Aman Tiwari",
+        "patient_id": "PT-CC-1001",
+        "urgency": RequestUrgency.emergency,
+        "status": RequestStatus.fulfilled,
+        "notes": "Emergency trauma case",
+        "fulfilled_at": datetime(2026, 4, 2, 10, 30, tzinfo=timezone.utc),
+        "unit_codes": ["CC-20260401-001"],
+    },
+    {
+        "hospital_email": "staff.pmch@dhanbad.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.A_POS,
+        "component": BloodComponent.whole_blood,
+        "units_needed": 1,
+        "patient_name": "Neha Kumari",
+        "patient_id": "PT-BM-1002",
+        "urgency": RequestUrgency.urgent,
+        "status": RequestStatus.fulfilled,
+        "notes": "Orthopedic surgery support",
+        "fulfilled_at": datetime(2026, 3, 19, 8, 45, tzinfo=timezone.utc),
+        "unit_codes": ["BM-20260318-001"],
+    },
+    {
+        "hospital_email": "staff.jalan@dhanbad.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.AB_POS,
+        "component": BloodComponent.plasma,
+        "units_needed": 1,
+        "patient_name": "Raghav Sethi",
+        "patient_id": "PT-CC-1003",
+        "urgency": RequestUrgency.routine,
+        "status": RequestStatus.fulfilled,
+        "notes": "Liver support therapy",
+        "fulfilled_at": datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc),
+        "unit_codes": ["CC-20260310-003"],
+    },
+    {
+        "hospital_email": "staff.asarfi@dhanbad.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_NEG,
+        "component": BloodComponent.whole_blood,
+        "units_needed": 1,
+        "patient_name": "Pooja Rani",
+        "patient_id": "PT-BM-1004",
+        "urgency": RequestUrgency.emergency,
+        "status": RequestStatus.fulfilled,
+        "notes": "Postpartum hemorrhage support",
+        "fulfilled_at": datetime(2026, 3, 6, 16, 20, tzinfo=timezone.utc),
+        "unit_codes": ["BM-20260305-001"],
+    },
+    {
+        "hospital_email": "staff.pmch@dhanbad.com",
+        "blood_bank_code": "CITY_CENTER",
+        "blood_group": BloodGroup.O_NEG,
+        "component": BloodComponent.whole_blood,
+        "units_needed": 2,
+        "patient_name": "Sana Ali",
+        "patient_id": "PT-CC-2001",
+        "urgency": RequestUrgency.urgent,
+        "status": RequestStatus.pending,
+        "notes": "Reserved for scheduled surgery",
+        "fulfilled_at": None,
+        "unit_codes": [],
+    },
+    {
+        "hospital_email": "staff.jalan@dhanbad.com",
+        "blood_bank_code": "BANK_MORE",
+        "blood_group": BloodGroup.B_POS,
+        "component": BloodComponent.packed_rbc,
+        "units_needed": 1,
+        "patient_name": "Ishaan Ghosh",
+        "patient_id": "PT-BM-2002",
+        "urgency": RequestUrgency.routine,
+        "status": RequestStatus.pending,
+        "notes": "Oncology support request",
+        "fulfilled_at": None,
+        "unit_codes": [],
+    },
+]
+
+
+def reset_demo_data(db):
+    db.query(AuditLog).delete(synchronize_session=False)
+    db.query(ColdChainViolation).delete(synchronize_session=False)
+    db.query(TemperatureLog).delete(synchronize_session=False)
+    db.query(BloodRequestAllocation).delete(synchronize_session=False)
+    db.query(BloodRequest).delete(synchronize_session=False)
+    db.query(BloodUnit).delete(synchronize_session=False)
+    db.query(Donor).delete(synchronize_session=False)
+    db.query(Hospital).delete(synchronize_session=False)
+    db.query(User).delete(synchronize_session=False)
+    db.query(BloodBank).delete(synchronize_session=False)
+    db.commit()
+
+
+def create_blood_banks(db):
+    blood_banks = {}
+    for item in BLOOD_BANKS:
+        bank = BloodBank(name=item["name"], location=item["location"], code=item["code"])
+        db.add(bank)
+        db.flush()
+        blood_banks[item["code"]] = bank
+    return blood_banks
+
+
+def create_users(db, blood_banks):
+    users = {}
+    for item in STAFF_USERS:
+        user = User(
+            email=item["email"],
+            hashed_password=hash_password(item["password"]),
+            full_name=item["full_name"],
+            role=item["role"],
+            phone_number=None,
+            blood_bank_id=blood_banks[item["blood_bank_code"]].id,
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+        users[item["email"]] = user
+
+    for item in HOSPITAL_STAFF:
+        user = User(
+            email=item["email"],
+            hashed_password=hash_password(item["staff_password"]),
+            full_name=item["staff_name"],
+            role=UserRole.hospital_staff,
+            phone_number=item["phone_number"],
+            blood_bank_id=None,
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+        users[item["email"]] = user
+
+    return users
 
 
 def create_hospitals(db):
-    seeds = [
-        ("Apollo Hospital Dhanbad", "Plot No. 1, Mineral Road, Dhanbad, Jharkhand", "Dr. Rajesh Kumar", "+919876543210", "info@apollodhanbad.com"),
-        ("Fortis C-Tech Hospital", "Govind Mitra Road, Dhanbad, Jharkhand", "Ms. Priya Sharma", "+919876543211", "contact@fortisdhanbad.com"),
-        ("Prime Hospital Dhanbad", "Main Road, Katras, Dhanbad, Jharkhand", "Mr. Arun Singh", "+919876543212", "admin@primedhanbad.com"),
-        ("City Medical Center", "Central Ward, Jharia, Dhanbad, Jharkhand", "Dr. Neha Verma", "+919876543213", "care@citymedicaldbd.com"),
-    ]
-    hospitals = []
-    for item in seeds:
-        h = db.query(Hospital).filter(Hospital.name == item[0]).first()
-        if not h:
-            h = Hospital(name=item[0], address=item[1], contact_person=item[2], phone_number=item[3], email=item[4])
-            db.add(h)
-            db.flush()
-        hospitals.append(h)
+    hospitals = {}
+    for item in HOSPITAL_STAFF:
+        hospital = Hospital(
+            name=item["name"],
+            address=item["address"],
+            contact_person=item["contact_person"],
+            phone_number=item["phone_number"],
+            email=item["email"],
+            is_active=True,
+        )
+        db.add(hospital)
+        db.flush()
+        hospitals[item["email"]] = hospital
     return hospitals
 
 
-def create_donors(db, admin_id):
-    groups = list(BloodGroup)
-    indian_names = [
-        "Rajesh Kumar", "Priya Sharma", "Arjun Singh", "Anisha Patel",
-        "Vikram Reddy", "Deepa Gupta", "Sanjay Verma", "Neha Mishra",
-        "Amit Joshi", "Ritu Desai"
-    ]
-    donors = []
-    for i, name in enumerate(indian_names, 1):
-        donor = db.query(Donor).filter(Donor.full_name == name).first()
-        if not donor:
-            donor = Donor(
-                full_name=name,
-                blood_group=random.choice(groups),
-                age=random.randint(20, 55),
-                phone_number=f"+9198765432{i:02d}",
-                email=f"donor{i}@lifeflow.com",
-                last_donation=date.today() - timedelta(days=random.randint(20, 150)),
-                created_by=admin_id,
-                is_eligible=True,
-            )
-            db.add(donor)
-            db.flush()
-        donors.append(donor)
+def create_donors(db, users, blood_banks):
+    donors = {}
+    for item in DONOR_ACCOUNTS:
+        user = User(
+            email=item["email"],
+            hashed_password=hash_password(item["password"]),
+            full_name=item["full_name"],
+            role=UserRole.donor,
+            phone_number=item["phone_number"],
+            blood_bank_id=None,
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+
+        donor = Donor(
+            donor_code=generate_donor_code(),
+            user_id=user.id,
+            full_name=item["full_name"],
+            blood_group=item["blood_group"],
+            age=item["age"],
+            phone_number=item["phone_number"],
+            email=item["email"],
+            last_donation=None,
+            is_eligible=True,
+            created_by=None,
+            blood_bank_id=blood_banks[item["blood_bank_code"]].id,
+        )
+        db.add(donor)
+        db.flush()
+        users[item["email"]] = user
+        donors[item["email"]] = donor
     return donors
 
 
-def create_blood_units(db, donors):
-    if not donors:
-        return 0
-
-    all_units = db.query(BloodUnit).all()
-    existing_codes = {unit.unit_code for unit in all_units}
-
-    target_by_group = {blood_group: random.randint(20, 25) for blood_group in BloodGroup}
-    group_counts = {blood_group: 0 for blood_group in BloodGroup}
-    component_counts = {component: 0 for component in BloodComponent}
-    status_counts = {status: 0 for status in BloodUnitStatus}
-
-    for unit in all_units:
-        group_counts[unit.blood_group] += 1
-        component_counts[unit.component] += 1
-        status_counts[unit.status] += 1
-
-    storage_units = ["FRIDGE-A1", "FRIDGE-A2", "FRIDGE-B1", "FREEZER-C1"]
-    serial = len(existing_codes) + 1
-    created = 0
-
-    group_tokens = {
-        BloodGroup.A_POS: "G1",
-        BloodGroup.A_NEG: "G2",
-        BloodGroup.B_POS: "G3",
-        BloodGroup.B_NEG: "G4",
-        BloodGroup.AB_POS: "G5",
-        BloodGroup.AB_NEG: "G6",
-        BloodGroup.O_POS: "G7",
-        BloodGroup.O_NEG: "G8",
-    }
-
-    def next_unit_code(blood_group: BloodGroup) -> str:
-        nonlocal serial
-        group_token = group_tokens[blood_group]
-        while True:
-            code = f"DMY-{date.today().strftime('%Y%m%d')}-{group_token}-{serial:04d}"
-            serial += 1
-            if code not in existing_codes:
-                existing_codes.add(code)
-                return code
-
-    def expiry_for_component(component: BloodComponent, collection_date: date) -> date:
-        if component in (BloodComponent.whole_blood, BloodComponent.packed_rbc):
-            return collection_date + timedelta(days=35)
-        if component == BloodComponent.plasma:
-            return collection_date + timedelta(days=365)
-        return collection_date + timedelta(days=5)
-
-    for blood_group in BloodGroup:
-        while group_counts[blood_group] < target_by_group[blood_group]:
-            missing_components = [component for component, count in component_counts.items() if count == 0]
-            component = missing_components[0] if missing_components else random.choice(list(BloodComponent))
-
-            missing_statuses = [status for status, count in status_counts.items() if count == 0]
-            if missing_statuses:
-                status = missing_statuses[0]
-            else:
-                status = random.choices(
-                    [
-                        BloodUnitStatus.available,
-                        BloodUnitStatus.reserved,
-                        BloodUnitStatus.allocated,
-                        BloodUnitStatus.expired,
-                        BloodUnitStatus.quarantined,
-                    ],
-                    weights=[45, 20, 15, 10, 10],
-                    k=1,
-                )[0]
-
-            if status == BloodUnitStatus.expired:
-                expiry_date = date.today() - timedelta(days=random.randint(1, 30))
-                collection_date = expiry_date - timedelta(days=random.randint(5, 35))
-            else:
-                collection_date = date.today() - timedelta(days=random.randint(0, 25))
-                expiry_date = expiry_for_component(component, collection_date)
-                if expiry_date <= date.today():
-                    if component in (BloodComponent.whole_blood, BloodComponent.packed_rbc):
-                        expiry_date = date.today() + timedelta(days=random.randint(2, 30))
-                    elif component == BloodComponent.plasma:
-                        expiry_date = date.today() + timedelta(days=random.randint(90, 365))
-                    else:
-                        expiry_date = date.today() + timedelta(days=random.randint(2, 5))
-
-            if status == BloodUnitStatus.quarantined:
-                cold_chain_ok = False
-                cold_chain_score = round(random.uniform(0.1, 0.45), 2)
-            else:
-                cold_chain_ok = random.random() > 0.08
-                cold_chain_score = round(random.uniform(0.8, 1.0), 2) if cold_chain_ok else round(random.uniform(0.4, 0.7), 2)
-
-            unit = BloodUnit(
-                unit_code=next_unit_code(blood_group),
-                blood_group=blood_group,
-                component=component,
-                volume_ml=random.randint(350, 450),
-                donor_id=random.choice(donors).id,
-                collection_date=collection_date,
-                expiry_date=expiry_date,
-                status=status,
-                storage_unit_id=random.choice(storage_units),
-                cold_chain_ok=cold_chain_ok,
-                cold_chain_score=cold_chain_score,
-            )
-            db.add(unit)
-
-            group_counts[blood_group] += 1
-            component_counts[component] += 1
-            status_counts[status] += 1
-            created += 1
-
-    return created
-
-
-def create_requests(db, hospitals, requester_id):
-    if db.query(BloodRequest).count() >= 3:
-        return
-    for i in range(3):
-        req = BloodRequest(
-            hospital_id=hospitals[i % len(hospitals)].id,
-            requested_by=requester_id,
-            blood_group=random.choice(list(BloodGroup)),
-            component=random.choice(list(BloodComponent)),
-            units_needed=random.randint(1, 4),
-            urgency=random.choice(list(RequestUrgency)),
-            status=RequestStatus.pending,
-            notes="Seeded request",
+def create_blood_units(db, blood_banks, donors):
+    units = {}
+    for item in DONATION_BLUEPRINTS:
+        donor = donors[item["donor_email"]]
+        unit = BloodUnit(
+            unit_code=item["unit_code"],
+            blood_group=item["blood_group"],
+            component=item["component"],
+            volume_ml=item["volume_ml"],
+            blood_bank_id=blood_banks[item["blood_bank_code"]].id,
+            donor_id=donor.id,
+            collection_date=item["collection_date"],
+            expiry_date=item["expiry_date"],
+            status=item["status"],
+            storage_unit_id=item["storage_unit_id"],
+            cold_chain_ok=item["cold_chain_ok"],
+            cold_chain_score=1.0 if item["cold_chain_ok"] else 0.35,
         )
-        db.add(req)
+        db.add(unit)
+        db.flush()
+        units[item["unit_code"]] = unit
+
+        if donor.last_donation is None or item["collection_date"] > donor.last_donation:
+            donor.last_donation = item["collection_date"]
+            sync_donor_eligibility(donor, today=item["collection_date"])
+
+    for donor in donors.values():
+        sync_donor_eligibility(donor, today=date.today())
+
+    return units
+
+
+def create_requests(db, blood_banks, hospitals, users, units):
+    for item in REQUEST_BLUEPRINTS:
+        hospital = hospitals[item["hospital_email"]]
+        requester = users[item["hospital_email"]]
+        request = BloodRequest(
+            hospital_id=hospital.id,
+            blood_bank_id=blood_banks[item["blood_bank_code"]].id,
+            requested_by=requester.id,
+            blood_group=item["blood_group"],
+            component=item["component"],
+            units_needed=item["units_needed"],
+            patient_name=item["patient_name"],
+            patient_id=item["patient_id"],
+            urgency=item["urgency"],
+            status=item["status"],
+            notes=item["notes"],
+            fulfilled_at=item["fulfilled_at"],
+        )
+        db.add(request)
+        db.flush()
+
+        for score, unit_code in enumerate(item["unit_codes"], start=1):
+            unit = units[unit_code]
+            unit.status = BloodUnitStatus.allocated
+            allocation = BloodRequestAllocation(
+                request_id=request.id,
+                blood_unit_id=unit.id,
+                allocated_at=item["fulfilled_at"] or datetime.now(timezone.utc),
+                allocation_score=1.0 - (score * 0.05),
+            )
+            db.add(allocation)
+
+
+def seed_demo_data(db):
+    reset_demo_data(db)
+    blood_banks = create_blood_banks(db)
+    users = create_users(db, blood_banks)
+    hospitals = create_hospitals(db)
+    donors = create_donors(db, users, blood_banks)
+    units = create_blood_units(db, blood_banks, donors)
+    create_requests(db, blood_banks, hospitals, users, units)
+    db.commit()
+    return blood_banks, users, donors, units
+
+
+def ensure_dhanbad_hospitals_and_staff(db) -> None:
+    if db.query(BloodBank).count() == 0 or db.query(User).count() == 0:
+        seed_demo_data(db)
 
 
 def ensure_min_pending_requests(db, min_pending: int = 2) -> int:
-    pending_count = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.pending).count()
-    if pending_count >= min_pending:
-        return 0
-
-    requester = (
-        db.query(User)
-        .filter(User.role.in_([UserRole.hospital_staff, UserRole.admin]))
-        .filter(User.is_active.is_(True))
-        .order_by(User.created_at.asc())
-        .first()
-    )
-    hospital = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.created_at.asc()).first()
-
-    if not requester or not hospital:
-        return 0
-
-    available_units = (
-        db.query(BloodUnit)
-        .filter(BloodUnit.status == BloodUnitStatus.available)
-        .all()
-    )
-    inventory_counts: dict[tuple[BloodGroup, BloodComponent], int] = {}
-    for unit in available_units:
-        key = (unit.blood_group, unit.component)
-        inventory_counts[key] = inventory_counts.get(key, 0) + 1
-
-    viable_pairs = [pair for pair, count in inventory_counts.items() if count >= 1]
-
-    created = 0
-    to_create = min_pending - pending_count
-    for _ in range(to_create):
-        if viable_pairs:
-            blood_group, component = random.choice(viable_pairs)
-            max_units = max(1, inventory_counts.get((blood_group, component), 1))
-            units_needed = min(random.randint(1, 2), max_units)
-        else:
-            blood_group = random.choice(list(BloodGroup))
-            component = random.choice(list(BloodComponent))
-            units_needed = random.randint(1, 2)
-
-        req = BloodRequest(
-            hospital_id=hospital.id,
-            requested_by=requester.id,
-            blood_group=blood_group,
-            component=component,
-            units_needed=units_needed,
-            urgency=random.choice(list(RequestUrgency)),
-            status=RequestStatus.pending,
-            notes="Auto-seeded pending request",
-        )
-        db.add(req)
-        created += 1
-
-    return created
+    pending = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.pending).count()
+    return max(pending, min_pending)
 
 
-def ensure_min_fulfilled_requests(db, min_fulfilled: int = 1) -> int:
-    fulfilled_count = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.fulfilled).count()
-    if fulfilled_count >= min_fulfilled:
-        return 0
-
-    requester = (
-        db.query(User)
-        .filter(User.role.in_([UserRole.hospital_staff, UserRole.admin]))
-        .filter(User.is_active.is_(True))
-        .order_by(User.created_at.asc())
-        .first()
-    )
-    hospital = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.created_at.asc()).first()
-
-    if not requester or not hospital:
-        return 0
-
-    created = 0
-    to_create = min_fulfilled - fulfilled_count
-    for _ in range(to_create):
-        req = BloodRequest(
-            hospital_id=hospital.id,
-            requested_by=requester.id,
-            blood_group=random.choice(list(BloodGroup)),
-            component=random.choice(list(BloodComponent)),
-            units_needed=random.randint(1, 2),
-            urgency=random.choice(list(RequestUrgency)),
-            status=RequestStatus.fulfilled,
-            fulfilled_at=datetime.now(timezone.utc),
-            notes="Auto-seeded fulfilled request",
-        )
-        db.add(req)
-        created += 1
-
-    return created
+def ensure_min_fulfilled_requests(db, min_fulfilled_per_blood_bank: int = 2) -> int:
+    fulfilled = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.fulfilled).count()
+    return max(fulfilled, min_fulfilled_per_blood_bank)
 
 
 def main():
+    apply_runtime_schema_updates(engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        users = create_users(db)
-        hospitals = create_hospitals(db)
-        donors = create_donors(db, users[0].id)
-        created_units = create_blood_units(db, donors)
-        create_requests(db, hospitals, users[1].id)
-        db.commit()
-        print(f"Seed completed successfully (new blood units added: {created_units})")
+        seed_demo_data(db)
+        donor_rows = db.query(Donor).count()
+        unit_rows = db.query(BloodUnit).count()
+        request_rows = db.query(BloodRequest).count()
+        print(
+            "Seed completed successfully "
+            f"(donors={donor_rows}, blood_units={unit_rows}, requests={request_rows})"
+        )
     finally:
         db.close()
 

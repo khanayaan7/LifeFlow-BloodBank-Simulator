@@ -44,6 +44,8 @@ export default function Dashboard() {
   const [activity, setActivity] = useState([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const bloodGroupOrder = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"];
+
   const load = async () => {
     const [statsRes, activityRes] = await Promise.all([
       api.get("/dashboard/stats"),
@@ -114,6 +116,8 @@ export default function Dashboard() {
 
   if (!stats) return <div className="flex items-center justify-center h-96 text-on-surface-variant">Loading dashboard...</div>;
 
+  const totalInventory = Object.values(stats.units_by_blood_group || {}).reduce((sum, count) => sum + count, 0);
+
   return (
     <div className="space-y-6 p-6 dark:bg-gray-950">
       {/* Header */}
@@ -181,15 +185,22 @@ export default function Dashboard() {
       <div className="rounded-lg bg-surface dark:bg-gray-800 p-6 shadow-ambient dark:shadow-none dark:border dark:border-gray-700">
         <h2 className="font-display text-xl font-bold text-on-surface dark:text-white mb-4">Inventory by Blood Group</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {["O+", "A+", "B+", "AB+"].map((group) => (
+          {bloodGroupOrder.map((group) => {
+            const count = stats.units_by_blood_group?.[group] ?? 0;
+            const percent = totalInventory > 0 ? Math.round((count / totalInventory) * 100) : 0;
+            return (
             <div key={group} className="bg-surface-container-low dark:bg-gray-700 rounded-lg p-4">
               <p className="text-label-md font-medium text-on-surface-variant dark:text-gray-400 uppercase mb-2">{group}</p>
-              <p className="text-2xl font-bold text-on-surface dark:text-white">248</p>
+              <p className="text-2xl font-bold text-on-surface dark:text-white">{count}</p>
               <div className="mt-3 h-1.5 w-full rounded-full bg-surface-container-high dark:bg-gray-600 overflow-hidden">
-                <div className="h-full w-3/4 rounded-full bg-gradient-to-r from-primary to-primary-container" />
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary to-primary-container"
+                  style={{ width: `${percent}%` }}
+                />
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

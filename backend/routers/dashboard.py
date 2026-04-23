@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, require_role
 from database import get_db
 from models import BloodGroup, BloodUnitStatus, RequestStatus
 from models.audit_log import AuditLog
@@ -18,20 +18,47 @@ router = APIRouter(tags=["dashboard"])
 
 
 @router.get("/stats")
-def dashboard_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    total_units = db.query(BloodUnit).count()
-    available_units = db.query(BloodUnit).filter(BloodUnit.status == BloodUnitStatus.available).count()
-    expiring_soon = db.query(BloodUnit).filter(BloodUnit.expiry_date <= date.today() + timedelta(days=7)).count()
-    pending_requests = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.pending).count()
-    active_violations = db.query(ColdChainViolation).filter(ColdChainViolation.resolved_at.is_(None)).count()
-    units_at_risk = db.query(BloodUnit).filter(BloodUnit.cold_chain_ok.is_(False)).count()
-    total_donors = db.query(Donor).count()
-    total_requests = db.query(BloodRequest).count()
-    fulfilled = db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.fulfilled).count()
+def dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "hospital_staff", "lab_technician", "auditor")),
+):
+    units_query = db.query(BloodUnit)
+    requests_query = db.query(BloodRequest)
+    donors_query = db.query(Donor)
+    if current_user.blood_bank_id:
+        units_query = units_query.filter(BloodUnit.blood_bank_id == current_user.blood_bank_id)
+        requests_query = requests_query.filter(BloodRequest.blood_bank_id == current_user.blood_bank_id)
+        donors_query = donors_query.filter(Donor.blood_bank_id == current_user.blood_bank_id)
+
+    available_units_query = units_query.filter(BloodUnit.status == BloodUnitStatus.available)
+
+    total_units = units_query.count()
+    available_units = available_units_query.count()
+    expiring_soon = units_query.filter(BloodUnit.expiry_date <= date.today() + timedelta(days=7)).count()
+    pending_requests = requests_query.filter(BloodRequest.status == RequestStatus.pending).count()
+    if current_user.blood_bank_id:
+        storage_units_subquery = (
+            db.query(BloodUnit.storage_unit_id)
+            .filter(BloodUnit.blood_bank_id == current_user.blood_bank_id)
+            .distinct()
+            .subquery()
+        )
+        active_violations = (
+            db.query(ColdChainViolation)
+            .filter(ColdChainViolation.resolved_at.is_(None))
+            .filter(ColdChainViolation.storage_unit_id.in_(storage_units_subquery))
+            .count()
+        )
+    else:
+        active_violations = db.query(ColdChainViolation).filter(ColdChainViolation.resolved_at.is_(None)).count()
+    units_at_risk = units_query.filter(BloodUnit.cold_chain_ok.is_(False)).count()
+    total_donors = donors_query.count()
+    total_requests = requests_query.count()
+    fulfilled = requests_query.filter(BloodRequest.status == RequestStatus.fulfilled).count()
 
     by_group = {}
     for bg in BloodGroup:
-        by_group[bg.value] = db.query(BloodUnit).filter(BloodUnit.blood_group == bg).count()
+        by_group[bg.value] = available_units_query.filter(BloodUnit.blood_group == bg).count()
 
     return {
         "total_units": total_units,
@@ -47,7 +74,10 @@ def dashboard_stats(db: Session = Depends(get_db), _: User = Depends(get_current
 
 
 @router.get("/recent-activity")
-def recent_activity(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def recent_activity(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin", "lab_technician", "auditor")),
+):
     rows = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(20).all()
     return [
         {

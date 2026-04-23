@@ -9,6 +9,7 @@ import AuditLog from "./pages/AuditLog";
 import BloodRequests from "./pages/BloodRequests";
 import BloodUnits from "./pages/BloodUnits";
 import Dashboard from "./pages/Dashboard";
+import DonorDashboard from "./pages/DonorDashboard";
 import Donors from "./pages/Donors";
 import Hospitals from "./pages/Hospitals";
 import Login from "./pages/Login";
@@ -17,7 +18,7 @@ import Violations from "./pages/Violations";
 
 function Shell({ children }) {
   const { user } = useAuth();
-  const { isMinimized } = useSidebar();
+  useSidebar();
   return (
     <div className="bg-appbg dark:bg-gray-950">
       <Navbar />
@@ -27,6 +28,12 @@ function Shell({ children }) {
       </div>
     </div>
   );
+}
+
+function defaultRouteForRole(role) {
+  if (role === "hospital_staff") return "/requests";
+  if (role === "donor") return "/donor";
+  return "/";
 }
 
 export default function App() {
@@ -39,9 +46,19 @@ export default function App() {
       <Route
         path="/"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={["admin", "lab_technician", "auditor"]}>
             <Shell>
               <Dashboard />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/donor"
+        element={
+          <ProtectedRoute roles={["donor"]}>
+            <Shell>
+              <DonorDashboard />
             </Shell>
           </ProtectedRoute>
         }
@@ -59,7 +76,7 @@ export default function App() {
       <Route
         path="/blood-units"
         element={
-          <ProtectedRoute roles={["admin", "lab_technician", "hospital_staff"]}>
+          <ProtectedRoute roles={["admin", "lab_technician"]}>
             <Shell>
               <BloodUnits />
             </Shell>
@@ -69,7 +86,7 @@ export default function App() {
       <Route
         path="/hospitals"
         element={
-          <ProtectedRoute roles={["admin", "hospital_staff"]}>
+          <ProtectedRoute roles={["admin"]}>
             <Shell>
               <Hospitals />
             </Shell>
@@ -116,7 +133,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-      <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
+      <Route path="*" element={<Navigate to={user ? defaultRouteForRole(user.role) : "/login"} replace />} />
     </Routes>
   );
 }

@@ -6,6 +6,7 @@ class UserRole(str, enum.Enum):
     hospital_staff = "hospital_staff"
     lab_technician = "lab_technician"
     auditor = "auditor"
+    donor = "donor"
 
 
 class BloodGroup(str, enum.Enum):

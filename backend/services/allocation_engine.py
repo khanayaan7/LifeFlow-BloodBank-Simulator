@@ -32,6 +32,7 @@ def allocate_units(request_id, db: Session) -> list[BloodUnit]:
         db.query(BloodUnit)
         .filter(BloodUnit.blood_group == req.blood_group)
         .filter(BloodUnit.component == req.component)
+        .filter(BloodUnit.blood_bank_id == req.blood_bank_id)
         .filter(BloodUnit.status == BloodUnitStatus.available)
         .filter(BloodUnit.expiry_date > date.today())
         .all()

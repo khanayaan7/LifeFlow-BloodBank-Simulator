@@ -1,12 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from auth.dependencies import get_current_user, require_role
 from database import get_db
 from models import RequestStatus, RequestUrgency
-from models.blood_request import BloodRequest
+from models.blood_bank import BloodBank
+from models.blood_request import BloodRequest, BloodRequestAllocation
+from models.hospital import Hospital
 from models.user import User
 from schemas.blood_request import BloodRequestCancel, BloodRequestCreate, BloodRequestOut
 from services.allocation_engine import allocate_units
@@ -15,14 +17,34 @@ from utils.audit import log_action
 router = APIRouter(tags=["requests"])
 
 
+def _staff_hospital(db: Session, user: User) -> Hospital | None:
+    return db.query(Hospital).filter(Hospital.email == user.email).first()
+
+
+def _scoped_query(db: Session, user: User):
+    query = db.query(BloodRequest).options(
+        joinedload(BloodRequest.hospital),
+        joinedload(BloodRequest.blood_bank),
+        joinedload(BloodRequest.allocations).joinedload(BloodRequestAllocation.blood_unit),
+    )
+    if user.role.value == "hospital_staff":
+        mapped_hospital = _staff_hospital(db, user)
+        if not mapped_hospital:
+            return query.filter(BloodRequest.id.is_(None))
+        return query.filter(BloodRequest.hospital_id == mapped_hospital.id)
+    if user.role.value in {"admin", "lab_technician", "auditor"} and user.blood_bank_id:
+        return query.filter(BloodRequest.blood_bank_id == user.blood_bank_id)
+    return query
+
+
 @router.get("/", response_model=list[BloodRequestOut])
 def list_requests(
     status: RequestStatus | None = Query(default=None),
     urgency: RequestUrgency | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("admin", "hospital_staff", "lab_technician", "auditor")),
 ):
-    query = db.query(BloodRequest)
+    query = _scoped_query(db, current_user)
     if status:
         query = query.filter(BloodRequest.status == status)
     if urgency:
@@ -33,22 +55,37 @@ def list_requests(
 @router.get("/pending", response_model=list[BloodRequestOut])
 def pending_requests(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "hospital_staff", "lab_technician")),
+    current_user: User = Depends(require_role("admin", "hospital_staff", "lab_technician")),
 ):
-    return db.query(BloodRequest).filter(BloodRequest.status == RequestStatus.pending).all()
+    return _scoped_query(db, current_user).filter(BloodRequest.status == RequestStatus.pending).all()
 
 
 @router.post("/", response_model=BloodRequestOut)
 def create_request(
     payload: BloodRequestCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin", "hospital_staff")),
+    current_user: User = Depends(require_role("hospital_staff")),
 ):
     if payload.status != RequestStatus.pending:
         raise HTTPException(status_code=400, detail="New requests must start with pending status")
+    if not payload.patient_name.strip() or not payload.patient_id.strip():
+        raise HTTPException(status_code=400, detail="Patient name and patient ID are required")
+
+    mapped_hospital = _staff_hospital(db, current_user)
+    if not mapped_hospital:
+        raise HTTPException(
+            status_code=400,
+            detail="No hospital is mapped to this hospital staff account",
+        )
+
+    target_blood_bank = db.query(BloodBank).filter(BloodBank.id == payload.blood_bank_id).first()
+    if not target_blood_bank:
+        raise HTTPException(status_code=404, detail="Target blood bank not found")
 
     req = BloodRequest(
-        **payload.model_dump(exclude={"status"}),
+        **payload.model_dump(exclude={"status", "hospital_id", "blood_bank_id"}),
+        hospital_id=mapped_hospital.id,
+        blood_bank_id=target_blood_bank.id,
         requested_by=current_user.id,
         status=RequestStatus.pending,
     )
@@ -60,7 +97,13 @@ def create_request(
         entity_type="blood_request",
         entity_id=str(req.id),
         user_id=current_user.id,
-        details={"units_needed": req.units_needed, "urgency": req.urgency.value, "status": req.status.value},
+        details={
+            "units_needed": req.units_needed,
+            "urgency": req.urgency.value,
+            "status": req.status.value,
+            "hospital": mapped_hospital.name,
+            "target_blood_bank": target_blood_bank.name,
+        },
     )
     db.commit()
     db.refresh(req)
@@ -68,8 +111,12 @@ def create_request(
 
 
 @router.get("/{request_id}", response_model=BloodRequestOut)
-def get_request(request_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    req = db.query(BloodRequest).filter(BloodRequest.id == request_id).first()
+def get_request(
+    request_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "hospital_staff", "lab_technician", "auditor")),
+):
+    req = _scoped_query(db, current_user).filter(BloodRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     return req
@@ -81,7 +128,7 @@ def fulfill_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin", "lab_technician")),
 ):
-    req = db.query(BloodRequest).filter(BloodRequest.id == request_id).first()
+    req = _scoped_query(db, current_user).filter(BloodRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     if req.status == RequestStatus.cancelled:
@@ -103,7 +150,7 @@ def cancel_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
-    req = db.query(BloodRequest).filter(BloodRequest.id == request_id).first()
+    req = _scoped_query(db, current_user).filter(BloodRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     req.status = RequestStatus.cancelled

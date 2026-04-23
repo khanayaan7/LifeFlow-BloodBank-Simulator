@@ -14,7 +14,7 @@ class BloodUnitCreate(BaseModel):
     expiry_date: date
     status: BloodUnitStatus
     cold_chain_ok: bool
-    donor_id: uuid.UUID | None = None
+    donor_id: uuid.UUID
     collection_date: date = Field(default_factory=date.today)
     storage_unit_id: str = "MANUAL-ENTRY"
 
@@ -46,11 +46,18 @@ class BloodUnitOut(BaseModel):
     component: BloodComponent
     volume_ml: int
     donor_id: uuid.UUID | None
+    donor_code: str | None = None
+    donor_name: str | None = None
+    blood_bank_name: str | None = None
     collection_date: date
     expiry_date: date
     status: BloodUnitStatus
     storage_unit_id: str
     cold_chain_ok: bool
     cold_chain_score: float
+    hospital_name: str | None = None
+    patient_name: str | None = None
+    patient_id: str | None = None
+    allocated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None

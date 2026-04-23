@@ -1,4 +1,4 @@
-import { LogOut, Moon, Sun, Shield, Building2, Beaker, CheckSquare } from "lucide-react";
+import { LogOut, Moon, Sun, Shield, Building2, Beaker, CheckSquare, HeartHandshake } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -8,7 +8,8 @@ const ROLE_ICONS = {
   admin: { Icon: Shield, color: "text-red-500", label: "Admin" },
   hospital_staff: { Icon: Building2, color: "text-blue-500", label: "Hospital Staff" },
   lab_technician: { Icon: Beaker, color: "text-purple-500", label: "Lab Technician" },
-  auditor: { Icon: CheckSquare, color: "text-green-500", label: "Auditor" }
+  auditor: { Icon: CheckSquare, color: "text-green-500", label: "Auditor" },
+  donor: { Icon: HeartHandshake, color: "text-rose-500", label: "Donor" }
 };
 
 export default function Navbar() {

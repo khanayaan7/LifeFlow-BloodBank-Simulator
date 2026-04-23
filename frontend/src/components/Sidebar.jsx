@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, Package, Hospital, FileText, AlertTriangle, Thermometer, FileCheck, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { LayoutDashboard, Users, Package, Hospital, FileText, AlertTriangle, Thermometer, FileCheck, ChevronsLeft, ChevronsRight, ReceiptText } from "lucide-react";
 import { useSidebar } from "../context/SidebarContext";
 
 const ICON_MAP = {
@@ -12,7 +12,8 @@ const ICON_MAP = {
   Requests: FileText,
   Violations: AlertTriangle,
   "Temperature Logs": Thermometer,
-  "Audit Log": FileCheck
+  "Audit Log": FileCheck,
+  "My Donations": ReceiptText
 };
 
 const NAV_BY_ROLE = {
@@ -27,10 +28,7 @@ const NAV_BY_ROLE = {
     { path: "/audit", label: "Audit Log" }
   ],
   hospital_staff: [
-    { path: "/", label: "Dashboard" },
-    { path: "/requests", label: "Requests" },
-    { path: "/blood-units", label: "Inventory" },
-    { path: "/hospitals", label: "Hospitals" }
+    { path: "/requests", label: "Requests" }
   ],
   lab_technician: [
     { path: "/", label: "Dashboard" },
@@ -44,6 +42,9 @@ const NAV_BY_ROLE = {
     { path: "/", label: "Dashboard" },
     { path: "/audit", label: "Audit Log" },
     { path: "/violations", label: "Violations" }
+  ],
+  donor: [
+    { path: "/donor", label: "My Donations" }
   ]
 };
 

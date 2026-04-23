@@ -9,8 +9,8 @@ from models.cold_chain_violation import ColdChainViolation
 from models.temperature_log import TemperatureLog
 from services.alert_service import send_cold_chain_sms, send_cold_chain_violation_email
 
-SAFE_MIN = 2.0
-SAFE_MAX = 6.0
+SAFE_MIN = 1.0
+SAFE_MAX = 8.0
 VIOLATION_TRIGGER_MINUTES = 2
 ALERT_INTERVAL_MINUTES = 2
 ALERT_CALL_TIMEOUT_SECONDS = 3

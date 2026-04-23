@@ -27,7 +27,7 @@ export default function TemperatureLogs() {
     .map((log) => ({ t: new Date(log.recorded_at).toLocaleTimeString(), temp: log.temperature_c }));
 
   const getTempStatus = (temp) => {
-    if (temp >= 2 && temp <= 6) return "safe";
+    if (temp >= 1 && temp <= 8) return "safe";
     return "warning";
   };
 
@@ -62,7 +62,7 @@ export default function TemperatureLogs() {
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#4f4f4f" />
               <XAxis dataKey="t" stroke="#999999" />
-              <YAxis domain={[0, 14]} stroke="#999999" />
+              <YAxis domain={[-2, 14]} stroke="#999999" />
               <Tooltip 
                 contentStyle={{
                   backgroundColor: "#ffffff",
@@ -72,8 +72,8 @@ export default function TemperatureLogs() {
                 labelStyle={{ color: "#111827" }}
                 itemStyle={{ color: "#111827" }}
               />
-              <ReferenceLine y={2} stroke="#af101a" strokeDasharray="4 4" label={{ value: "Min (2°C)", position: "right", fill: "#af101a" }} />
-              <ReferenceLine y={6} stroke="#af101a" strokeDasharray="4 4" label={{ value: "Max (6°C)", position: "right", fill: "#af101a" }} />
+              <ReferenceLine y={1} stroke="#af101a" strokeDasharray="4 4" label={{ value: "Min (1°C)", position: "right", fill: "#af101a" }} />
+              <ReferenceLine y={8} stroke="#af101a" strokeDasharray="4 4" label={{ value: "Max (8°C)", position: "right", fill: "#af101a" }} />
               <Line type="monotone" dataKey="temp" stroke="#af101a" dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>

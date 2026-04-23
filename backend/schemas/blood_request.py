@@ -7,10 +7,13 @@ from models import BloodComponent, BloodGroup, RequestStatus, RequestUrgency
 
 
 class BloodRequestCreate(BaseModel):
-    hospital_id: uuid.UUID
+    hospital_id: uuid.UUID | None = None
+    blood_bank_id: uuid.UUID
     blood_group: BloodGroup
     component: BloodComponent
     units_needed: int
+    patient_name: str
+    patient_id: str
     urgency: RequestUrgency
     status: RequestStatus = RequestStatus.pending
     notes: str | None = None
@@ -35,13 +38,18 @@ class BloodRequestOut(BaseModel):
 
     id: uuid.UUID
     hospital_id: uuid.UUID
+    blood_bank_id: uuid.UUID | None
     requested_by: uuid.UUID
     blood_group: BloodGroup
     component: BloodComponent
     units_needed: int
+    patient_name: str
+    patient_id: str
     urgency: RequestUrgency
     status: RequestStatus
     requested_at: datetime
     fulfilled_at: datetime | None
     notes: str | None
+    requesting_hospital_name: str | None = None
+    target_blood_bank_name: str | None = None
     allocations: list[BloodRequestAllocationOut] = []

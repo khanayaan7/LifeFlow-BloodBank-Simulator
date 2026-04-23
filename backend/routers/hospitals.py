@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth.dependencies import get_current_user, require_role
+from auth.dependencies import require_role
 from database import get_db
 from models.blood_request import BloodRequest
 from models.hospital import Hospital
@@ -16,7 +16,7 @@ router = APIRouter(tags=["hospitals"])
 
 
 @router.get("/", response_model=list[HospitalOut])
-def list_hospitals(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_hospitals(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     return db.query(Hospital).order_by(Hospital.created_at.desc()).all()
 
 
@@ -36,7 +36,11 @@ def create_hospital(
 
 
 @router.get("/{hospital_id}", response_model=HospitalOut)
-def get_hospital(hospital_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_hospital(
+    hospital_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -62,7 +66,11 @@ def update_hospital(
 
 
 @router.get("/{hospital_id}/requests", response_model=list[BloodRequestOut])
-def hospital_requests(hospital_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def hospital_requests(
+    hospital_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
     return (
         db.query(BloodRequest)
         .filter(BloodRequest.hospital_id == hospital_id)

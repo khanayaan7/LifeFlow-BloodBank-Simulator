@@ -15,7 +15,7 @@ const getStatusColor = (status) => {
   }
 };
 
-export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
+export default function BloodUnitTable({ units, canEdit = false, onEdit, onDelete }) {
   return (
     <div className="rounded-lg bg-surface dark:bg-gray-800 shadow-ambient dark:shadow-none dark:border dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
@@ -23,11 +23,14 @@ export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
           <thead className="bg-surface-container-low dark:bg-gray-700 border-b border-surface-container-high dark:border-gray-600">
             <tr>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Unit Code</th>
+              <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Donor</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Blood Group</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Component</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Volume</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Expiry</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Status</th>
+              <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Allocation</th>
+              <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Stored In</th>
               <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Cold Chain</th>
               {canEdit && <th className="px-6 py-4 text-left text-label-md font-semibold text-on-surface-variant dark:text-gray-300">Actions</th>}
             </tr>
@@ -35,7 +38,7 @@ export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
           <tbody className="divide-y divide-surface-container-low dark:divide-gray-700">
             {units.length === 0 ? (
               <tr>
-                <td colSpan={canEdit ? 8 : 7} className="px-6 py-8 text-center">
+                <td colSpan={canEdit ? 11 : 10} className="px-6 py-8 text-center">
                   <p className="text-body-md text-on-surface-variant dark:text-gray-400">No blood units found</p>
                 </td>
               </tr>
@@ -43,6 +46,10 @@ export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
               units.map((u) => (
                 <tr key={u.id} className="hover:bg-surface-container-low dark:hover:bg-gray-700 transition-colors">
                   <td className="px-6 py-4 font-medium text-on-surface dark:text-gray-200">{u.unit_code}</td>
+                  <td className="px-6 py-4 text-on-surface-variant dark:text-gray-300">
+                    <div className="font-semibold text-on-surface dark:text-gray-200">{u.donor_name || "Unlinked"}</div>
+                    <div className="text-xs">{u.donor_code || "-"}</div>
+                  </td>
                   <td className="px-6 py-4 text-on-surface dark:text-gray-200">{u.blood_group}</td>
                   <td className="px-6 py-4 text-on-surface dark:text-gray-200">{u.component}</td>
                   <td className="px-6 py-4 text-on-surface dark:text-gray-200">{u.volume_ml} ml</td>
@@ -52,6 +59,11 @@ export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
                       {u.status}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-on-surface-variant dark:text-gray-400">
+                    <div>{u.hospital_name || "-"}</div>
+                    <div className="text-xs">{u.patient_name ? `${u.patient_name} (${u.patient_id || "-"})` : "Not allocated"}</div>
+                  </td>
+                  <td className="px-6 py-4 text-on-surface dark:text-gray-200">{u.storage_unit_id || "-"}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-block px-3 py-1 rounded-full text-label-md font-semibold ${u.cold_chain_ok ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"}`}>
                       {u.cold_chain_ok ? "✓ OK" : "✗ Alert"}
@@ -59,12 +71,20 @@ export default function BloodUnitTable({ units, canEdit = false, onEdit }) {
                   </td>
                   {canEdit && (
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => onEdit?.(u)}
-                        className="rounded-lg bg-primary px-3 py-1.5 text-label-md font-semibold text-on-primary hover:bg-primary-container"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onEdit?.(u)}
+                          className="rounded-lg bg-primary px-3 py-1.5 text-label-md font-semibold text-on-primary hover:bg-primary-container"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => onDelete?.(u)}
+                          className="rounded-lg bg-red-600 px-3 py-1.5 text-label-md font-semibold text-white hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   )}
                 </tr>

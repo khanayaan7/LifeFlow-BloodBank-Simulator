@@ -26,7 +26,10 @@ class UserOut(BaseModel):
     email: EmailStr
     full_name: str
     role: UserRole
+    blood_bank_id: uuid.UUID | None = None
     phone_number: str | None = None
+    donor_profile_id: uuid.UUID | None = None
+    donor_code: str | None = None
     is_active: bool
     created_at: datetime
 
